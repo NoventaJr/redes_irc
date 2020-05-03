@@ -1,6 +1,11 @@
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
+#include <unistd.h>
 #include <sys/socket.h>
+#include <converter.h>
+
+#define MAX_SIZE 4096
 
 struct in_addr{
     unsigned long s_addr;
@@ -12,57 +17,68 @@ struct sockaddr_in{
     unsigned short sin_port;
     struct in_addr sin_addr;
     char sin_zero[8];
-
 };
-
-// struct sockaddr{
-//     unsigned short sa_family;
-//     char sa_data[14];
-// };
-
-__uint32_t convert_long(){
-
-}
-
-__uint16_t convert_short(){
-
-}
 
 //argv[1] = port
 int main(int argc, char *argv[]){
-    int server_fd;
+    int server_fd, new_socket;
     int port;
     struct sockaddr_in server_addr;
+    int addr_len = sizeof(server_addr);
+    int c;
 
     //verificando porta
     if(argc < 2){
         fprintf(stderr, "Porta nao especificada!\n");
         exit(-1);
     }
-
     port = atoi(argv[1]);
-    //printf("%d\n", port);
-
+   
     //criando socket
     server_fd = socket(AF_INET, SOCK_STREAM, 0);
-    if(server_fd == -1){
+    if(server_fd < 0){
         fprintf(stderr, "Nao foi possivel criar socket!\n");
         exit(-2);
     }
 
-    server_addr.sin_addr.s_addr = inet_addr("74.125.235.20");
+    bzero(&server_addr, sizeof(server_addr));   //ao contrario do cliente.c, memset da erro
+    //memset(&server_addr, '0', sizeof(server_addr));
+    server_addr.sin_addr.s_addr = 0;            //usar convert_to_net pra ip
     server_addr.sin_family = AF_INET;
     server_addr.sin_port = __bswap_16(port);
 
-    //printf("%d\n", server_addr.sin_port);
-
-    //tentando conectar
-    if(connect(server_fd, (struct sockaddr *)&server_addr, sizeof(server_addr)) < 0){
-        fprintf(stderr, "Erro de conexao!\n");
+    //iniciando
+    if(bind(server_fd, (struct sockaddr *) &server_addr, sizeof(server_addr)) < 0){
+        fprintf(stderr, "Bind falhou!\n");
         exit(-3);
+    };
+
+    if(listen(server_fd, 50) < 0) { 
+        printf("Falha ao escutar\n"); 
+        exit(-4); 
     }
 
-    printf("Conectado!\n");
+    //conectado
+    printf("Servidor conectado!!\n");
+    while(1){
+        char buffer[MAX_SIZE] = {0};
+
+        printf("Aguardando conexao...\n");
+        if ((new_socket = accept(server_fd, (struct sockaddr *)&server_addr, (socklen_t *)&addr_len)) < 0){
+            printf("Falha ao aceitar conexao\n");            
+            exit(-5);        
+        }
+
+        send(new_socket, "Conectado! Envie 'exit' para desconectar.", strlen("Conectado!"), 0);
+
+        while(recv(new_socket, buffer, MAX_SIZE, 0) > 0){
+            printf("%s\n", buffer);
+            memset(buffer, 0, sizeof(buffer));
+        }
+        
+        printf("Usuario desconectou...\n");
+        close(new_socket);
+    }
 
     return 0;
 }
