@@ -69,7 +69,6 @@ int main(int argc, char *argv[]){
         }while(c != ENTER);
         msg[--msg_len] = '\0';
         fflush(stdin);
-        printf("%d\n", msg_len);
 
         //condicao de saida
         if(strcmp(msg, "exit\0") == 0){
@@ -79,9 +78,12 @@ int main(int argc, char *argv[]){
         }
 
         //rotina de envio
-        while(msg_len > MAX_SIZE){
+        while(msg_len > MAX_SIZE){  //caso maior que 4096 caracteres
             strcpy(msg_send, msg);
-            send(server_fd, msg_send, MAX_SIZE, 0);
+            if(send(server_fd, msg_send, MAX_SIZE, 0) < 0){
+                fprintf(stderr, "Desconectado!\n");
+                exit(-4);
+            }
             msg_len -= MAX_SIZE;
             for(i = 0;i < msg_len;i++){
                 msg[i] = msg[i + MAX_SIZE];

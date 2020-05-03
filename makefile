@@ -1,5 +1,3 @@
-all: compile_server run
-
 compile_server:
 	gcc server.c converter.c -I Include -o server -lm -g
 
@@ -11,6 +9,3 @@ compile_client:
 
 run_client:
 	./client 8080
-
-clean:
-	rm ./server

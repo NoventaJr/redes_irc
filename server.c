@@ -6,6 +6,7 @@
 #include <converter.h>
 
 #define MAX_SIZE 4096
+#define ENTER 10
 
 struct in_addr{
     unsigned long s_addr;
@@ -71,11 +72,12 @@ int main(int argc, char *argv[]){
 
         send(new_socket, "Conectado! Envie 'exit' para desconectar.", strlen("Conectado!"), 0);
 
+        //rotina de recebimento
         while(recv(new_socket, buffer, MAX_SIZE, 0) > 0){
             printf("%s\n", buffer);
             memset(buffer, 0, sizeof(buffer));
         }
-        
+
         printf("Usuario desconectou...\n");
         close(new_socket);
     }
