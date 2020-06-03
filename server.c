@@ -13,7 +13,6 @@
 #define WELCOME_MSG_2 "!\n"
 #define SERVER_FULL_MSG "Numero maximo de clientes no momento.\nTente novamente mais tarde.\n\n"
 #define LIST_CMD "/list"
-#define LIST_IP_CMD "/list_ip"
 
 pthread_mutex_t clients_mutex = PTHREAD_MUTEX_INITIALIZER;
 
@@ -188,18 +187,6 @@ void *admServer(){
             else{
                 for(i = 0;i < client_count;i++){
                     if(clients[i])  printf("%s\n", clients[i]->nick);
-                }
-                printf("\n");
-            }
-        }
-
-        //lista apelido e ip de quem esta conectado
-        if(strcmp(cmd, LIST_IP_CMD) == 0){
-            printf("(%d/%d)\n", client_count, MAX_CLIENTS);
-            if(client_count == 0)   printf("Nao ha clientes conectados no momento\n\n");
-            else{
-                for(i = 0;i < client_count;i++){
-                    if(clients[i])  printf("%s\t%ld\n", clients[i]->nick, clients[i]->address.sin_addr.s_addr);
                 }
                 printf("\n");
             }
