@@ -94,7 +94,7 @@ void *recv_msg(void *arg) {
         //imprime mensagem e limpa buffer
         printf("%s", msg_rec);
 		memset(msg_rec, 0, sizeof(msg_rec));
-  }
+    }
 }
 
 //argv[1] = port
@@ -103,8 +103,7 @@ int main(int argc, char *argv[]){
     int server_fd;
     int port;
     char msg_rec[MAX_MSG_SIZE], msg_send[MAX_MSG_SIZE];
-    char nick[MAX_NICK_SIZE];
-    int msg_len, nick_len, cmd_len;
+    int msg_len, cmd_len;
     int i;
 
     flag = 0;
@@ -118,7 +117,7 @@ int main(int argc, char *argv[]){
 
     //comando para conectar
     while(1){
-        printf("/connect\t Para se CONECTAR ao servidor\n/quit\t\t Para FECHAR a aplicacao\n\n");
+        printf("/connect\t Para se CONECTAR ao servidor.\n/quit\t\t Para FECHAR a aplicacao.\n\n");
 
         char *cmd = readLine(&cmd_len);
         
@@ -136,22 +135,6 @@ int main(int argc, char *argv[]){
         }
     }
 
-    //definindo apelido
-    while(1){
-        printf("--+--+--+--+--+--\nPor favor digite seu apelido: ");
-
-        char *get_nick = readLine(&nick_len);
-
-        //condicoes do apelido
-        if(nick_len < 4 || nick_len > MAX_NICK_SIZE){
-            printf("ERRO: Apelido invalido!\nApelidos devem ter entre 4 e 32 caracteres\n\n");
-            free(get_nick);
-        }else{
-            strcpy(nick, get_nick);
-            free(get_nick);
-            break;
-        }
-    }
     printf("Conectando ao servidor...\n");
 
     //criando socket
@@ -171,10 +154,6 @@ int main(int argc, char *argv[]){
     if(connect(server_fd, (struct sockaddr *) &server_addr, sizeof(server_addr)) < 0){
         fprintf(stderr, "ERRO: Connect!\n");
         exit(-1);
-    }
-
-    if(send(server_fd, nick, nick_len, 0) < 0){
-        fprintf(stderr, "ERRO: Nao foi possivel enviar apelido!\n");
     }
 
     //criacao das threads
