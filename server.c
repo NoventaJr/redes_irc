@@ -19,6 +19,10 @@
 #define PING_CMD "/ping"
 #define NICK_CMD "/nickname"
 #define JOIN_CMD "/join"
+#define MUTE_CMD "/mute"
+#define MUTE_CMD "/mute"
+#define UNMUTE_CMD "/unmute"
+#define KICK_CMD "/kick"
 
 pthread_mutex_t clients_mutex = PTHREAD_MUTEX_INITIALIZER;
 pthread_mutex_t channels_mutex = PTHREAD_MUTEX_INITIALIZER;
@@ -48,7 +52,7 @@ typedef struct client{
 typedef struct channel{
     int cid;
     char ch_name[MAX_CHANNEL_SIZE];
-    //int users[MAX_CLIENTS];
+    int muted[MAX_CLIENTS];
     int n_users;
     int adm;
 } t_channel;
@@ -63,9 +67,27 @@ int flag;
 char msg[MAX_MSG_SIZE] = {0};
 
 //envia mensagens para todos os clientes conectados
-void send_message(char *msg, t_client *client, int receive, int ch){
+void send_message(char *msg, t_client *client, int receive, int ch, int alert){
 	pthread_mutex_lock(&clients_mutex);
     int i, j;
+
+    if(!alert){
+        for(i = 0;i < MAX_CHANNELS;i++){
+            if(channels[i]){
+                if(channels[i]->cid == client->current_channel){
+                    for(j = 0;j < MAX_CLIENTS;j++){
+                        if(channels[i]->muted[j] == client->uid){
+                            send(client->sockfd, "Voce nao tem permissao para enviar mensagens neste canal\n", MAX_MSG_SIZE, 0);
+                            sleep(1);
+                            bzero(msg, MAX_MSG_SIZE);
+                            pthread_mutex_unlock(&clients_mutex);
+                            return;
+                        }
+                    }
+                }
+            }
+        }
+    }
 
     //passa por todos os clientes
     for(i = 0;i < MAX_CLIENTS;i++){
@@ -85,6 +107,7 @@ void send_message(char *msg, t_client *client, int receive, int ch){
         }
     }
 
+    bzero(msg, MAX_MSG_SIZE);
 	pthread_mutex_unlock(&clients_mutex);
 }
 
@@ -104,41 +127,84 @@ void add_client(t_client *new_client){
 	pthread_mutex_unlock(&clients_mutex);
 }
 
-//remove determinado cliente da lista
-void remove_client(t_client *client){
-	pthread_mutex_lock(&clients_mutex);
-    int j, k;
+int remove_channel(t_channel *channel){
+    int i;
 
-    //verifica o cliente esta conectado em algum canal
-    if(client->current_channel != -1){
-        //procura canal em que o cliente esta conectado
-        for(j = 0;j < MAX_CHANNELS;j++){
-            //verifica se existe
-            if(channels[j]){
-                //verifica se é o correto
-                if(channels[j]->cid == client->current_channel){
-                    //diminui a qtd de usuarios ativos
-                    channels[j]->n_users--;
-                    //elimina o canal caso não tenha mais ngm
-                    if(channels[j]->n_users == 0){
-                        //remove_channel(channel[i]);
-                    }else{
-                        //caso tenha mais gente, verifica se o cliente desconectado é o adm
-                        if(channels[j]->adm == client->uid){
-                            //se for roda os clientes do canal
-                            for(k = 0;k < MAX_CLIENTS;k++){
-                                //verifica se o cliente existe
-                                if(clients[k]){
-                                    //verifica se nao é o cliente desconectado e se pertence ao canal
-                                    if(clients[k]->uid != client->uid && clients[k]->current_channel == channels[j]->cid){
-                                        //transfere adm
-                                        channels[j]->adm = clients[k]->uid;
-                                    }
-                                }
+    for(i = 0;i < MAX_CHANNELS;i++){
+        if(channels[i]){
+            if(channels[i]->cid == channel->cid){
+                bzero(channel->ch_name, MAX_CHANNEL_SIZE);
+                channel->cid = 0;
+                channel->adm = -1;
+                channels[i] = NULL;
+                free(channel);
+                return 1;
+            }
+        }
+    }
+
+    return 0;
+}
+
+void remove_from_channel(t_client *client, int ch_id, int kicked){
+    int i, j;
+
+    //percorre canais
+    for(i = 0;i < MAX_CHANNELS;i++){
+        if(channels[i]){
+            if(channels[i]->cid == ch_id){
+                if(kicked){
+                    strcpy(msg, "O usuario ");
+                    strcat(msg, client->nick);
+                    strcat(msg, " foi kickado do canal pelo admnistrador\n");
+                    send_message(msg, client, 0, client->current_channel, 1);
+                }else{
+                    strcpy(msg, "O usuario ");
+                    strcat(msg, client->nick);
+                    strcat(msg, " se desconectou do canal\n");
+                    send_message(msg, client, 0, client->current_channel, 1);
+                }
+                channels[i]->n_users--;
+                client->current_channel = -1;
+                if(channels[i]->adm == client->uid && channels[i]->n_users > 0){
+                    for(j = 0;j < MAX_CLIENTS;j++){
+                        if(clients[j]){
+                            if(clients[j]->uid != client->uid && clients[j]->current_channel == channels[i]->cid){
+                                channels[i]->adm = clients[j]->uid;
+                                send(clients[j]->sockfd, "Voce e o novo admnistrador do canal\n", MAX_MSG_SIZE, 0);
                             }
                         }
                     }
+                }else{
+                    break;
                 }
+            }
+        }
+    }
+
+    if(channels[i]->n_users == 0){
+        if(remove_channel(channels[i]))     channel_count--;
+    }
+}
+
+//remove determinado cliente da lista
+void remove_client(t_client *client){
+	pthread_mutex_lock(&clients_mutex);
+    int i;
+
+    //verifica o cliente esta conectado em algum canal e chama função de remoção
+    if(client->current_channel != -1){
+        remove_from_channel(client, client->current_channel, 0);
+    }
+
+    for(i = 0;i < MAX_CLIENTS;i++){
+        if(clients[i]){
+            if(clients[i]->uid == client->uid){
+                bzero(client->nick, MAX_NICK_SIZE);
+                client->uid = -1;
+                client->current_channel = -1;
+                clients[i] = NULL;
+                break;
             }
         }
     }
@@ -147,7 +213,7 @@ void remove_client(t_client *client){
 }
 
 int add_channel(char *name, t_client *client){
-    int i;
+    int i, j;
 
     if(name[0] != '#'){
         send(client->sockfd, "O nome do canal deve comecar com #\nTente novamente.\n\n", MAX_MSG_SIZE, 0);
@@ -166,6 +232,7 @@ int add_channel(char *name, t_client *client){
     strcpy(new_channel->ch_name, name);
     new_channel->n_users = 1;
     new_channel->adm = client->uid;
+    channel_count++;    
 
     //altera canal ativo do cliente
     client->current_channel = new_channel->cid;
@@ -174,14 +241,19 @@ int add_channel(char *name, t_client *client){
     for(i = 0;i < MAX_CHANNELS;i++){
         if(!channels[i]){
             channels[i] = new_channel;
+            for(j = 0;j < MAX_CLIENTS;j++)  channels[i]->muted[j] = -1;
+            break;
         }
     }
 
     //confirmacao de criacao
+    // printf("Canal %s criado\n", new_channel->ch_name);
+
     strcpy(msg, new_channel->ch_name);
     strcat(msg, " criado com sucesso!\n\n");
     send(client->sockfd, msg, MAX_MSG_SIZE, 0);
 
+    //free(new_channel);
     bzero(msg, MAX_MSG_SIZE);
     return 1;
 }
@@ -193,16 +265,20 @@ int join_channel(char *name, t_client *client){
     int success = 0;
     // char msg[MAX_MSG_SIZE] = {0};
 
+    if(client->current_channel != -1){
+        remove_from_channel(client, client->current_channel, 0);
+    }
+
     //verificando se canal existe
     for(i = 0;i < MAX_CHANNELS;i++){
         if(channels[i]){
             if(strcmp(name, channels[i]->ch_name) == 0){
-                printf("%s\t%s\t%d\n", name, channels[i]->ch_name, channels[i]->n_users);
                 //altera numero de usuarios
                 channels[i]->n_users++;
                 //altera canal ativo do cliente
                 client->current_channel = channels[i]->cid;
                 joined = 1;
+
                 //envia confirmação de entrada
                 strcpy(msg, "Conectando ao canal ");
                 strcat(msg, name);
@@ -211,8 +287,10 @@ int join_channel(char *name, t_client *client){
                 //envia aviso de entrada ao canal
                 strcpy(msg, client->nick);
                 strcat(msg, " se conectou ao canal!\n");
-                send_message(msg, client, 0, client->current_channel);
+                send_message(msg, client, 0, client->current_channel, 1);
                 success = 1;
+
+                // printf("%s se conectou ao canal %s\n", client->nick, channels[i]->ch_name);
                 break;
             }
         }
@@ -221,6 +299,8 @@ int join_channel(char *name, t_client *client){
     if(!joined){
         //canal não encontrado
         send(client->sockfd, "Canal inexistente, tentando criar canal...\n", MAX_MSG_SIZE, 0);
+        bzero(msg, MAX_MSG_SIZE);
+        sleep(1);
         success = add_channel(name, client);
         // pthread_mutex_unlock(&channels_mutex);
     }
@@ -257,16 +337,16 @@ void change_nick(char *nick, t_client *client){
             strcat(msg, " mudou seu apelido para ");
             strcat(msg, nick);
             strcat(msg, "!\n");
-            send_message(msg, client, 1, 0);
+            send_message(msg, client, 1, 0, 1);
         }else{
             //mensagem avisando conexao (para outros usuarios)
             strcpy(msg, nick);
             strcat(msg, " se conectou ao servidor!\n");
-            send_message(msg, client, 0, 0);
+            send_message(msg, client, 0, 0, 1);
             //mensagem de boas vindas (para o usuario)
             strcpy(msg, "Bem vindo ");
             strcat(msg, nick);
-            strcat(msg, "!\n");
+            strcat(msg, "!\nPara se conectar a um canal, utilize o comando /join CANAL\n\n");
             send(client->sockfd, msg, MAX_MSG_SIZE, 0);
         }
 		strcpy(client->nick, nick);
@@ -277,6 +357,127 @@ void change_nick(char *nick, t_client *client){
     bzero(msg, MAX_MSG_SIZE);
 	bzero(nick, MAX_NICK_SIZE);
     return;
+}
+
+void mute(t_client *adm, char *nick){
+    int i, j;
+    t_client *client = (t_client *) malloc(sizeof(t_client));
+
+    for(i = 0;i < MAX_CLIENTS;i++){
+        if(clients[i]){
+            if(strcmp(clients[i]->nick, nick) == 0){
+                client = clients[i];
+                break;
+            }
+        }
+    }
+
+    if(client->current_channel != -1){
+        for(i = 0;i < MAX_CHANNELS;i++){
+            if(channels[i]){
+                if(channels[i]->cid == client->current_channel){
+                    if(client->uid != channels[i]->adm){
+                        for(j = 0;j < MAX_CLIENTS;j++){
+                            if(channels[i]->muted[j] == -1){
+                                channels[i]->muted[j] = client->uid;
+                                break;
+                            }
+                        }
+                        send(client->sockfd, "Voce foi mutado pelo admnistrador do canal\n\n", MAX_MSG_SIZE, 0);
+                    }else{
+                        send(adm->sockfd, "Nao e possivel mutar o adm\n\n", MAX_MSG_SIZE, 0);
+                    }
+                    free(client);
+                    return;
+                }
+            }
+        }
+    }
+
+    free(client);
+    send(adm->sockfd, "Usuario nao esta conectado no canal\n", MAX_MSG_SIZE, 0);
+}
+
+void unmute(t_client *adm, char *nick){
+    int i, j;
+    t_client *client = (t_client *) malloc(sizeof(t_client));
+
+    for(i = 0;i < MAX_CLIENTS;i++){
+        if(clients[i]){
+            if(strcmp(clients[i]->nick, nick) == 0){
+                client = clients[i];
+                break;
+            }
+        }
+    }
+
+    if(client->current_channel != -1){
+        for(i = 0;i < MAX_CHANNELS;i++){
+            if(channels[i]){
+                if(channels[i]->cid == client->current_channel){
+                    for(j = 0;j < MAX_CLIENTS;j++){
+                        if(channels[i]->muted[j] == client->uid){
+                            channels[i]->muted[j] = -1;
+                            send(client->sockfd, "Voce foi desmutado\n\n", MAX_MSG_SIZE, 0);
+                            break;
+                        }
+                    }
+                    free(client);
+                    return;
+                }
+            }
+        }
+    }
+
+    free(client);
+    send(adm->sockfd, "Usuario nao esta conectado no canal\n", MAX_MSG_SIZE, 0);
+}
+
+void kick(t_client *adm, char *nick){
+    int i;
+    t_client *client = (t_client *) malloc(sizeof(t_client));
+
+    for(i = 0;i < MAX_CLIENTS;i++){
+        if(clients[i]){
+            if(strcmp(clients[i]->nick, nick) == 0){
+                client = clients[i];
+                break;
+            }
+        }
+    }
+
+    if(client->current_channel != -1){
+        for(i = 0;i < MAX_CHANNELS;i++){
+            if(channels[i]){
+                if(channels[i]->cid == client->current_channel){
+                    if(client->uid != channels[i]->adm){
+                        send(client->sockfd, "Voce foi kickado do canal pelo admnistrador\n\n", MAX_MSG_SIZE, 0);
+                        remove_from_channel(client, channels[i]->cid, 1);
+                    }else{
+                        send(adm->sockfd, "Nao e possivel kickar o adm\n\n", MAX_MSG_SIZE, 0);
+                    }
+                    bzero(msg, MAX_MSG_SIZE);
+                    free(client);
+                    return;
+                }
+            }
+        }
+    }
+
+    free(client);
+    send(adm->sockfd, "Usuario nao esta conectado no canal\n", MAX_MSG_SIZE, 0);
+}
+
+int isAdm(t_client *client){
+    int i;
+
+    for(i = 0;i < MAX_CHANNELS;i++){
+        if(channels[i]){
+            if(channels[i]->adm == client->uid)    return 1;
+        }
+    }
+
+    return 0;
 }
 
 //gerencia os clientes via thread
@@ -309,7 +510,7 @@ void *handle_client(void *arg){
             if(strcmp(buffer, QUIT_CMD) == 0){
                 strcpy(msg_send, client->nick);
                 strcat(msg_send, " desconectou!\n");
-                send_message(msg_send, client, 0, 0);
+                send_message(msg_send, client, 0, 0, 0);
                 fprintf(stderr, "%s DESCONECTOU\n", client->nick);
                 break;
             }
@@ -322,6 +523,27 @@ void *handle_client(void *arg){
                 cmd = strtok(buffer, " ");
                 // printf("%s\n", cmd);
 
+                if(isAdm(client)){
+                    //caso cliente seja adm do canal
+                    //caso cliente envie /mute xxxxx
+                    if(strcmp(cmd, MUTE_CMD) == 0){
+                        cmd = strtok(NULL, " ");
+                        mute(client, cmd);
+                    }else{
+                        //caso cliente envie /unmute xxxxx
+                        if(strcmp(cmd, UNMUTE_CMD) == 0){
+                            cmd = strtok(NULL, " ");
+                            unmute(client, cmd);
+                        }else{
+                            //caso cliente envie /kick xxxxx
+                            if(strcmp(cmd, KICK_CMD) == 0){
+                                cmd = strtok(NULL, " ");
+                                kick(client, cmd);
+                            }
+                        }
+                    }
+                }
+                    
                 //caso cliente envie /nickname xxxxx
                 if(strcmp(cmd, NICK_CMD) == 0){
                     cmd = strtok(NULL, " ");
@@ -350,7 +572,7 @@ void *handle_client(void *arg){
                 memset(buffer, 0, sizeof(buffer));
 
                 printf("%s", msg_send);
-                send_message(msg_send, client, 1, client->current_channel);
+                send_message(msg_send, client, 1, client->current_channel, 0);
             }else{
                 if(strlen(client->nick) <= 0)   send(client->sockfd, "Por favor, especifique um apelido atraves do comando /nickname APELIDO antes de enviar uma mensagem\n\n", MAX_MSG_SIZE, 0);
                 else                            send(client->sockfd, "Por favor, conecte-se a um canal atraves do comando /join canal antes de enviar uma mensagem\n\n", MAX_MSG_SIZE, 0);
@@ -388,8 +610,19 @@ void *admServer(){
             printf("(%d/%d)\n", client_count, MAX_CLIENTS);
             if(client_count == 0)   printf("Nao ha clientes conectados no momento\n\n");
             else{
-                for(i = 0;i < client_count;i++){
-                    if(clients[i])  printf("%s\n", clients[i]->nick);
+                for(i = 0;i < MAX_CLIENTS;i++){
+                    if(clients[i])  printf("%d\t%s\t%d\t\n", clients[i]->uid, clients[i]->nick, clients[i]->current_channel);
+                }
+                printf("\n");
+            }
+        }
+
+        if(strcmp(cmd, LIST_CHANNELS_CMD) == 0){
+            printf("(%d/%d)\n", channel_count, MAX_CHANNELS);
+            if(channel_count == 0)  printf("Nao ha canais criados no momento\n\n");
+            else{
+                for(i = 0;i < MAX_CHANNELS;i++){
+                    if(channels[i]) printf("%d\t%s\t%d\t%d\n", channels[i]->cid, channels[i]->ch_name, channels[i]->n_users, channels[i]->adm);
                 }
                 printf("\n");
             }

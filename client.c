@@ -94,6 +94,7 @@ void *recv_msg(void *arg) {
         //imprime mensagem e limpa buffer
         printf("%s", msg_rec);
 		memset(msg_rec, 0, sizeof(msg_rec));
+        sleep(1);
     }
 }
 
